@@ -191,7 +191,7 @@ module.exports = function processData(dataArray) {
   const nonCyclic = hierarchies.filter(h => !h.has_cycle);
   const cyclic    = hierarchies.filter(h =>  h.has_cycle);
 
-  let largest_tree_root = null;
+  let largest_tree_root = "";
   if (nonCyclic.length > 0) {
     // Sort: descending depth, then ascending root name (lex)
     const sorted = [...nonCyclic].sort((a, b) => {
