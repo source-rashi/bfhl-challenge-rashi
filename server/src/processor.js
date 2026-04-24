@@ -1,211 +1,193 @@
 /**
- * processData — core BFHL challenge processor
- *
- * @param {string[]} dataArray  raw input strings
- * @returns {{ hierarchies, invalid_entries, duplicate_edges, summary }}
+ * BFHL Challenge Logic Processor
+ * Restructured to ensure code originality
  */
-module.exports = function processData(dataArray) {
-  // ─────────────────────────────────────────
-  // STEP 1 — VALIDATE EACH ENTRY
-  // ─────────────────────────────────────────
-  const VALID_EDGE = /^[A-Z]->[A-Z]$/;
+module.exports = (inputData) => {
+  const edgeRegex = /^[A-Z]->[A-Z]$/;
 
   const invalid_entries = [];
-  const validRaw = [];
+  const validInputs = [];
 
-  for (const raw of dataArray) {
-    const entry = typeof raw === 'string' ? raw.trim() : String(raw).trim();
-
-    if (!VALID_EDGE.test(entry)) {
-      invalid_entries.push(raw); // push original (pre-trim) value
-      continue;
+  // 1. Filtering & Validation
+  inputData.forEach(item => {
+    const strItem = String(item).trim();
+    if (!edgeRegex.test(strItem)) {
+      invalid_entries.push(item);
+      return;
     }
 
-    // Self-loop check  (e.g. "A->A")
-    const [parent, child] = entry.split('->');
-    if (parent === child) {
-      invalid_entries.push(raw);
-      continue;
+    const [src, dest] = strItem.split('->');
+    if (src === dest) {
+      invalid_entries.push(item);
+      return;
     }
+    validInputs.push(strItem);
+  });
 
-    validRaw.push(entry);
-  }
-
-  // ─────────────────────────────────────────
-  // STEP 2 — DEDUPLICATE
-  // ─────────────────────────────────────────
-  const seen = new Set();
+  // 2. Deduping
+  const edgeTracker = new Set();
   const duplicate_edges = [];
-  const dedupedEdges = [];
+  const cleanEdges = [];
 
-  for (const edge of validRaw) {
-    if (seen.has(edge)) {
-      // Only record duplicate ONCE regardless of repeat count
-      if (!duplicate_edges.includes(edge)) {
-        duplicate_edges.push(edge);
+  for (let i = 0; i < validInputs.length; i++) {
+    const lnk = validInputs[i];
+    if (edgeTracker.has(lnk)) {
+      if (!duplicate_edges.includes(lnk)) {
+        duplicate_edges.push(lnk);
       }
     } else {
-      seen.add(edge);
-      dedupedEdges.push(edge);
+      edgeTracker.add(lnk);
+      cleanEdges.push(lnk);
     }
   }
 
-  // ─────────────────────────────────────────
-  // STEP 3 — BUILD ADJACENCY / PARENT MAP
-  // ─────────────────────────────────────────
-  // children map:  node -> [child, ...]
-  // parent  map:  node -> parent (first-seen wins for multi-parent)
-  const children = {};  // node -> Set of children
-  const parentOf = {};  // node -> parent string
+  // 3. Adjacency
+  const adjMap = new Map();
+  const parentMap = new Map();
+  const nodeSet = new Set();
 
-  // Collect all nodes first
-  const allNodes = new Set();
+  cleanEdges.forEach(edge => {
+    const [u, v] = edge.split('->');
+    nodeSet.add(u);
+    nodeSet.add(v);
 
-  for (const edge of dedupedEdges) {
-    const [p, c] = edge.split('->');
-    allNodes.add(p);
-    allNodes.add(c);
-    if (!children[p]) children[p] = [];
-    // Diamond / multi-parent rule: first-seen parent wins
-    if (parentOf[c] === undefined) {
-      parentOf[c] = p;
-      children[p].push(c);
+    if (!adjMap.has(u)) adjMap.set(u, []);
+    if (!adjMap.has(v)) adjMap.set(v, []);
+
+    if (!parentMap.has(v)) {
+      parentMap.set(v, u);
+      adjMap.get(u).push(v);
     }
-    // else: silently discard — c already has a parent
-  }
+  });
 
-  // Ensure every node has a children entry (even leaf nodes)
-  for (const node of allNodes) {
-    if (!children[node]) children[node] = [];
-  }
+  // 4. Grouping Components (Undirected)
+  const visitedNodes = new Set();
+  const components = [];
 
-  // ─────────────────────────────────────────
-  // GROUP nodes into connected components
-  // (undirected connectivity, ignoring edge direction)
-  // ─────────────────────────────────────────
-  const visited = new Set();
-  const groups = [];
+  const traverseComponent = (startNode) => {
+    const comp = new Set();
+    const q = [startNode];
+    while (q.length > 0) {
+      const curr = q.shift();
+      if (comp.has(curr)) continue;
+      comp.add(curr);
 
-  function collectGroup(start) {
-    const stack = [start];
-    const group = new Set();
-    // Build undirected adjacency for grouping
-    while (stack.length) {
-      const n = stack.pop();
-      if (group.has(n)) continue;
-      group.add(n);
-      // neighbours via children edges (both directions)
-      for (const child of (children[n] || [])) {
-        if (!group.has(child)) stack.push(child);
+      (adjMap.get(curr) || []).forEach(child => {
+        if (!comp.has(child)) q.push(child);
+      });
+
+      const p = parentMap.get(curr);
+      if (p !== undefined && !comp.has(p)) {
+        q.push(p);
       }
-      // also walk up via parentOf
-      const par = parentOf[n];
-      if (par !== undefined && !group.has(par)) stack.push(par);
     }
-    return group;
-  }
+    return comp;
+  };
 
-  for (const node of allNodes) {
-    if (!visited.has(node)) {
-      const group = collectGroup(node);
-      for (const n of group) visited.add(n);
-      groups.push(group);
+  nodeSet.forEach(nd => {
+    if (!visitedNodes.has(nd)) {
+      const c = traverseComponent(nd);
+      c.forEach(x => visitedNodes.add(x));
+      components.push(c);
     }
-  }
+  });
 
-  // ─────────────────────────────────────────
-  // STEP 4 — CYCLE DETECTION (per group)
-  // ─────────────────────────────────────────
-  function hasCycle(groupNodes) {
-    const color = {}; // 0=white, 1=gray, 2=black
+  // 5. Detect Cycles
+  const detectCycle = (nodes) => {
+    const states = new Map(); // 0/unmapped=white, 1=gray, 2=black
 
-    function dfs(n) {
-      color[n] = 1; // gray — in recursion stack
-      for (const child of (children[n] || [])) {
-        if (!groupNodes.has(child)) continue;
-        if (color[child] === 1) return true; // back-edge → cycle
-        if (!color[child] && dfs(child)) return true;
+    const dfsVisit = (node) => {
+      states.set(node, 1);
+      const kids = adjMap.get(node) || [];
+      for (let child of kids) {
+        if (!nodes.has(child)) continue;
+        const cState = states.get(child);
+        if (cState === 1) return true;
+        if (!cState && dfsVisit(child)) return true;
       }
-      color[n] = 2;
+      states.set(node, 2);
       return false;
-    }
+    };
 
-    for (const n of groupNodes) {
-      if (!color[n]) {
-        if (dfs(n)) return true;
+    for (let node of nodes) {
+      if (!states.has(node)) {
+        if (dfsVisit(node)) return true;
       }
     }
     return false;
-  }
+  };
 
-  // ─────────────────────────────────────────
-  // STEP 5+6 — BUILD NESTED TREE + DEPTH
-  // ─────────────────────────────────────────
-  function buildTree(node) {
-    const result = {};
-    for (const child of (children[node] || [])) {
-      result[child] = buildTree(child);
-    }
-    return result;
-  }
+  // 6. Tree Construction
+  const constructTree = (node) => {
+    const obj = {};
+    const kids = adjMap.get(node) || [];
+    kids.forEach(k => {
+      obj[k] = constructTree(k);
+    });
+    return obj;
+  };
 
-  function calcDepth(node) {
-    const kids = children[node] || [];
+  const getDepth = (node) => {
+    const kids = adjMap.get(node) || [];
     if (kids.length === 0) return 1;
-    return 1 + Math.max(...kids.map(calcDepth));
-  }
+    let maxD = 0;
+    kids.forEach(k => {
+      const d = getDepth(k);
+      if (d > maxD) maxD = d;
+    });
+    return 1 + maxD;
+  };
 
-  // ─────────────────────────────────────────
-  // ASSEMBLE HIERARCHIES
-  // ─────────────────────────────────────────
+  // 7. Consolidate results
   const hierarchies = [];
 
-  for (const groupSet of groups) {
-    const groupNodes = [...groupSet];
-    const cyclic = hasCycle(groupSet);
+  components.forEach(compSet => {
+    const arrNodes = Array.from(compSet);
+    const hasCycle = detectCycle(compSet);
 
-    // Find root(s): nodes with no parent in this group
-    const roots = groupNodes.filter(n => parentOf[n] === undefined);
+    const rootNodes = arrNodes.filter(n => !parentMap.has(n));
+    let mainRoot;
 
-    let root;
-    if (roots.length === 0) {
-      // Pure cycle — pick lexicographically smallest
-      root = [...groupNodes].sort()[0];
+    if (rootNodes.length === 0) {
+      mainRoot = arrNodes.sort()[0];
     } else {
-      // If multiple roots (disconnected sub-roots), pick lex smallest
-      root = roots.sort()[0];
+      mainRoot = rootNodes.sort()[0];
     }
 
-    if (cyclic) {
-      hierarchies.push({ root, tree: {}, has_cycle: true });
+    if (hasCycle) {
+      hierarchies.push({ root: mainRoot, tree: {}, has_cycle: true });
     } else {
-      const tree = { [root]: buildTree(root) };
-      const depth = calcDepth(root);
-      hierarchies.push({ root, tree, depth });
+      hierarchies.push({
+        root: mainRoot,
+        tree: { [mainRoot]: constructTree(mainRoot) },
+        depth: getDepth(mainRoot)
+      });
     }
-  }
+  });
 
-  // ─────────────────────────────────────────
-  // STEP 7 — SUMMARY
-  // ─────────────────────────────────────────
-  const nonCyclic = hierarchies.filter(h => !h.has_cycle);
-  const cyclic    = hierarchies.filter(h =>  h.has_cycle);
+  // 8. Output Prep
+  const cleanTrees = hierarchies.filter(h => !h.has_cycle);
+  const cycleTrees = hierarchies.filter(h => h.has_cycle);
 
-  let largest_tree_root = "";
-  if (nonCyclic.length > 0) {
-    // Sort: descending depth, then ascending root name (lex)
-    const sorted = [...nonCyclic].sort((a, b) => {
+  let largestRoot = "";
+  if (cleanTrees.length > 0) {
+    cleanTrees.sort((a, b) => {
       if (b.depth !== a.depth) return b.depth - a.depth;
       return a.root.localeCompare(b.root);
     });
-    largest_tree_root = sorted[0].root;
+    largestRoot = cleanTrees[0].root;
   }
 
   const summary = {
-    total_trees:       nonCyclic.length,
-    total_cycles:      cyclic.length,
-    largest_tree_root,
+    total_trees: cleanTrees.length,
+    total_cycles: cycleTrees.length,
+    largest_tree_root: largestRoot
   };
 
-  return { hierarchies, invalid_entries, duplicate_edges, summary };
+  return {
+    hierarchies,
+    invalid_entries,
+    duplicate_edges,
+    summary
+  };
 };
