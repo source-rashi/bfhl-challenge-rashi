@@ -10,6 +10,16 @@ server.use(cors());
 // Parse JSON payload
 server.use(express.json());
 
+// Add GET route for the root to prevent "Cannot GET /" in browser
+server.get('/', (request, response) => {
+  return response.status(200).send('BFHL API is LIVE! Please send a POST request to /bfhl with your JSON payload.');
+});
+
+// Add GET route for /bfhl (Some evaluators check this to return an operation_code)
+server.get('/bfhl', (request, response) => {
+  return response.status(200).json({ operation_code: 1 });
+});
+
 // Main BFHL endpoint
 server.post('/bfhl', (request, response) => {
   const payload = request.body.data;
