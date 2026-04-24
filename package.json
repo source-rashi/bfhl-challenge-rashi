@@ -4,6 +4,7 @@
   "description": "Full Stack REST API challenge — processes node strings into tree hierarchies with cycle detection.",
   "main": "index.js",
   "scripts": {
+    "start": "node server/src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
