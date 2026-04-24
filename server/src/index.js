@@ -24,7 +24,7 @@ server.post('/bfhl', (request, response) => {
 
   // Return formatted JSON
   return response.status(200).json({
-    user_id:             'rashi_agrawal_08092005',
+    user_id:             'rashiagrawal_08092005',
     email_id:            'rashi_agrawal@srmap.edu.in',
     college_roll_number: 'AP23110010155',
     ...processed
